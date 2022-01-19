@@ -116,7 +116,6 @@ class LARS(Optimizer):
                     else:
                         buf = param_state['momentum_buffer']
                         buf.mul_(momentum).add_(grad, alpha= 1.0 - dampening)
-
                     if nesterov:
                         grad = grad.add(buf, alpha=momentum)
                     else:
