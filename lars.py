@@ -8,7 +8,6 @@ Ref:
     - timm: https://github.com/rwightman/pytorch-image-models/blob/master/timm/optim/lars.py
     - NIVIDA apex: https://github.com/NVIDIA/apex/blob/master/apex/parallel/LARC.py
 '''
-from turtle import update
 import torch
 from torch.optim.optimizer import Optimizer
 
