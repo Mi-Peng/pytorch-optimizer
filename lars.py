@@ -8,6 +8,7 @@ Ref:
     - timm: https://github.com/rwightman/pytorch-image-models/blob/master/timm/optim/lars.py
     - NIVIDA apex: https://github.com/NVIDIA/apex/blob/master/apex/parallel/LARC.py
 '''
+from turtle import update
 import torch
 from torch.optim.optimizer import Optimizer
 
@@ -121,4 +122,84 @@ class LARS(Optimizer):
                     else:
                         grad = buf
                 p.add_(grad, alpha=-group['lr'])
+        return loss        
+
+class LARSv2(Optimizer):
+    '''
+    LARS in `Large batch training of Convolutional Networks`(https://arxiv.org/pdf/1708.03888.pdf) and \
+        `Large batch optimization for deep learning: training BERT in 76 minutes`(https://arxiv.org/pdf/1904.00962.pdf) has difference.
+    This version LARS is described in https://arxiv.org/pdf/1904.00962.pdf 
+
+    Args:
+        - params: parameters to optimize or dicts.
+        - lr(float): learning rate(default: 1.0).
+        - beta(float): momentum factor(default: 0).
+        - eps(float): eps for division denominator(default: 1e-8).
+    '''
+    def __init__(
+        self, 
+        params, 
+        lr: float=1.0,
+        beta: float=0,
+        weight_decay: float=0,
+        eps: float=1e-8,
+    ):
+        if lr < 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if beta < 0.0:
+            raise ValueError("Invalid momentum value: {}".format(beta))
+        if weight_decay < 0.0:
+            raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+
+        defaults = dict(
+            lr=lr,
+            beta=beta,
+            weight_decay=weight_decay,
+            eps=eps,
+        )
+        super.__init__(params, defaults)
+
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Args:
+            closure (callable, optional): A closure that reevaluates the model and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        
+        one_tensor = torch.tensor(1.0, device=self.param_groups[0]['params'][0].device)
+        for group in self.param_groups:
+            weight_decay = group['weight_decay']
+            beta = group['beta']
+
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                grad = p.grad     
+                # update as SGD: https://pytorch.org/docs/stable/generated/torch.optim.SGD.html#torch.optim.SGD   
+                if weight_decay != 0:
+                    grad = grad.add(p, alpha=weight_decay)
+                if beta != 0:
+                    param_state = self.state[p]
+                    if 'momentum_buffer' not in param_state:
+                        buf = param_state['momentum_buffer'] = torch.clone(grad).detach()
+                    else:
+                        buf = param_state['momentum_buffer']
+                        buf.mul_(beta).add_(grad, alpha= 1.0 - beta)
+                    m = buf
+                # using identity function as \phi function without clip
+                w_norm = torch.norm(p, 2)
+                g_norm = torch.norm(m, 2)
+                ratio = torch.where(
+                    w_norm > 0,
+                    torch.where(g_norm > 0, (w_norm / g_norm), one_tensor),
+                    one_tensor,
+                )
+                p = p - group['lr'] * ratio * m
         return loss        
